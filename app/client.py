@@ -1,18 +1,24 @@
 import asyncio
 import logging
+from kafka import KafkaProducer
 
 from asyncua import Client, Node, ua
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('asyncua')
 
-# mudar com o docker
+# mudar com o docker?
+kafka_producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
+kafka_topic = 'opc-ua'
+
+# mudar com o docker?
 url = 'opc.tcp://localhost:4840/freeopcua/server/'
 namespace = 'http://examples.freeopcua.github.io'
 
 class SubscriptionHandler:
     def datachange_notification(self, node: Node, val, data):
         logger.info(f'datachange_notification {node} {val}')
+        kafka_producer.send(kafka_topic, str(val).encode())
 
 async def main():
     print(f'Connecting to {url}...')
