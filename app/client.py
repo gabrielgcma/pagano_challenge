@@ -33,6 +33,9 @@ class SubscriptionHandler:
         kafka_producer.flush()
 
 
+values = []
+
+
 async def kafka_consumer_task():
     kafka_consumer = KafkaConsumer(
         kafka_topic,
@@ -40,18 +43,24 @@ async def kafka_consumer_task():
         auto_offset_reset="earliest",
         enable_auto_commit=False,
     )
+
     for msg in kafka_consumer:
         logging.info("got a message")
         database.create_msg(msg.value.decode("utf-8"))
+        values.append(msg.value.decode("utf-8"))
 
 
-def write_to_txt(val):
-    with open("/home/data.txt", "a") as f:
-        try:
-            logging.info(f"writing {val}")
-            f.write(val)
-        except Exception as e:
-            logging.error(e)
+async def write_to_txt_task():
+    while True:
+        with open("/home/data.txt", "a") as f:
+            for val in values:
+                try:
+                    logging.info(f"writing {val}")
+                    f.write(val + "\n")
+                except Exception as e:
+                    logging.error(e)
+            values.clear()
+        await asyncio.sleep(10)
 
 
 async def opcua_client_task():
@@ -93,9 +102,12 @@ if __name__ == "__main__":
     kafka_consumer_thread = threading.Thread(
         target=asyncio.run, args=(kafka_consumer_task(),)
     )
+    writer_thread = threading.Thread(target=asyncio.run, args=(write_to_txt_task(),))
 
     opcua_thread.start()
     kafka_consumer_thread.start()
+    writer_thread.start()
 
     opcua_thread.join()
     kafka_consumer_thread.join()
+    writer_thread.join()
