@@ -33,7 +33,7 @@ async def main():
 
     async with server:
         while True:
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             new_val = await my_var.get_value() + 0.1
             logger.info(f'Set value of {my_var} to {new_val}')
             await my_var.write_value(new_val)

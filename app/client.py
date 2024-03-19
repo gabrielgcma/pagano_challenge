@@ -1,55 +1,101 @@
 import asyncio
 import logging
-from kafka import KafkaProducer
+
+import database
+import threading
 
 from asyncua import Client, Node, ua
 
+from kafka import KafkaProducer, KafkaConsumer
+
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('asyncua')
+logger = logging.getLogger("asyncua")
+
+kafka_topic = "opc-ua"
+kafka_producer = KafkaProducer(bootstrap_servers=["kafka:9092"])
+
+
+def on_send_success(record):
+    logging.info("message sent")
+
 
 # mudar com o docker?
-kafka_producer = KafkaProducer(bootstrap_servers=['localhost:9092'])
-kafka_topic = 'opc-ua'
+opcua_server_url = "opc.tcp://opcua_server:4840/freeopcua/server/"
+opcua_namespace = "http://examples.freeopcua.github.io"
 
-# mudar com o docker?
-url = 'opc.tcp://localhost:4840/freeopcua/server/'
-namespace = 'http://examples.freeopcua.github.io'
 
 class SubscriptionHandler:
     def datachange_notification(self, node: Node, val, data):
-        logger.info(f'datachange_notification {node} {val}')
-        kafka_producer.send(kafka_topic, str(val).encode())
+        logger.info(f"datachange_notification {node} {val}")
+        kafka_producer.send(kafka_topic, str(val).encode()).add_callback(
+            on_send_success
+        )
+        kafka_producer.flush()
 
-async def main():
-    print(f'Connecting to {url}...')
 
-    async with Client(url=url) as client:
+async def kafka_consumer_task():
+    kafka_consumer = KafkaConsumer(
+        kafka_topic,
+        bootstrap_servers=["kafka:9092"],
+        auto_offset_reset="earliest",
+        enable_auto_commit=False,
+    )
+    for msg in kafka_consumer:
+        logging.info("got a message")
+        database.create_msg(msg.value.decode("utf-8"))
+
+
+def write_to_txt(val):
+    with open("/home/data.txt", "a") as f:
+        try:
+            logging.info(f"writing {val}")
+            f.write(val)
+        except Exception as e:
+            logging.error(e)
+
+
+async def opcua_client_task():
+    print(f"Connecting to OPC-UA server {opcua_server_url}...")
+
+    async with Client(url=opcua_server_url) as client:
         handler = SubscriptionHandler()
 
-        subscription = await client.create_subscription(period=1000, handler=handler, publishing=False)
+        subscription = await client.create_subscription(
+            period=1000, handler=handler, publishing=False
+        )
 
-        namespace_idx = await client.get_namespace_index(namespace)
-        print(f"Namespace index for '{namespace}': {namespace_idx}")
+        namespace_idx = await client.get_namespace_index(opcua_namespace)
+        print(f"Namespace index for '{opcua_namespace}': {namespace_idx}")
 
-        var = await client.nodes.root.get_child(f"0:Objects/{namespace_idx}:MyObj/{namespace_idx}:MyVar")
+        var = await client.nodes.root.get_child(
+            f"0:Objects/{namespace_idx}:MyObj/{namespace_idx}:MyVar"
+        )
         val = await var.read_value()
         print(f"Value of MyVar ({var}): {val}")
 
-        nodes = [var, client.get_node(ua.ObjectIds.Server_ServerStatus_CurrentTime)]
-
         await subscription.subscribe_data_change(var)
 
-        await asyncio.sleep(10)
+        # await forever:
+        await asyncio.Future()
 
-        await subscription.delete()
 
-        await asyncio.sleep(1)
-        
-        #new_val = val - 50
-        #print(f"Setting val of MyVar to {new_val}...")
-        #await var.write_value(new_val)
-        #res = await client.nodes.objects.call_method(f"{namespace_idx}:ServerMethod", 5)
-        #print(f"Calling ServerMethod returned {res}")
+# async def main():
+# opcua_client = asyncio.create_task(opcua_client_task())
+# kafka_consumer = asyncio.create_task(kafka_consumer_task())
 
-if __name__ == '__main__':
-    asyncio.run(main())
+# await asyncio.gather(opcua_client, kafka_consumer)
+
+if __name__ == "__main__":
+    print("entry point")
+    # asyncio.run(main(), debug=True)
+
+    opcua_thread = threading.Thread(target=asyncio.run, args=(opcua_client_task(),))
+    kafka_consumer_thread = threading.Thread(
+        target=asyncio.run, args=(kafka_consumer_task(),)
+    )
+
+    opcua_thread.start()
+    kafka_consumer_thread.start()
+
+    opcua_thread.join()
+    kafka_consumer_thread.join()

@@ -3,11 +3,14 @@ aiosqlite==0.20.0
 asyncua==1.1.0
 cffi==1.16.0
 cryptography==42.0.5
+greenlet==3.0.3
 kafka-python==2.0.2
+psycopg2-binary==2.9.9
 pycparser==2.21
 pyOpenSSL==24.0.0
 python-dateutil==2.9.0.post0
 pytz==2024.1
 six==1.16.0
 sortedcontainers==2.4.0
+SQLAlchemy==2.0.28
 typing_extensions==4.10.0

@@ -1,23 +1,64 @@
-version: '3'
+version: '3.9'
 
 services:
-  zookeeper:
-    image: wurstmeister/zookeeper
-    container_name: zookeeper
+  db:
+    image: postgres
+    container_name: db_opcua
+    restart: always
     ports:
-      - "2181:2181"
-    ulimits:
-      nofile:
-        soft: 65536
-        hard: 65536
+      - "5432:5432"
+    environment:
+      - "POSTGRES_USER=postgres"
+      - "POSTGRES_PASSWORD=postgres"
+      - "POSTGRES_DB=opcua"
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres', '-d', 'opcua']
+      interval: 3s
+      timeout: 50s
+      retries: 10
+
+  app:
+    build:
+      dockerfile: "./app/Dockerfile"
+    container_name: opcua_client
+    depends_on:
+      kafka:
+        condition: "service_healthy"
+      db:
+        condition: "service_healthy"
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+
+  opcua_server:
+    build:
+      dockerfile: "./opc-ua/Dockerfile"
+    container_name: opcua_server
+    ports:
+      - "4840:4840"
+
+  zookeeper:
+     image: wurstmeister/zookeeper
+     container_name: zookeeper
+     ports:
+       - "2181:2181"
+     ulimits:
+       nofile:
+         soft: 65536
+         hard: 65536
 
   kafka:
-    image: wurstmeister/kafka 
-    container_name: kafka
-    depends_on: 
-      - zookeeper
-    ports:
-      - "9092:9092"
-    environment:
-      KAFKA_ADVERTISED_HOST_NAME: localhost
-      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+     image: wurstmeister/kafka 
+     container_name: kafka
+     depends_on: 
+       - zookeeper
+     ports:
+       - "9092:9092"
+     healthcheck:
+      test: nc -z localhost 9092 || exit -1
+      start_period: 15s
+      interval: 5s
+      timeout: 10s
+      retries: 10
+     environment:
+       KAFKA_ADVERTISED_HOST_NAME: kafka
+       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
